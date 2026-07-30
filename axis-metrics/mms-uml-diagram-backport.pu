@@ -1,0 +1,99 @@
+@startuml mms_release_backport
+title MMS / Cloud Monolith — Backport Release (overlay on existing dated branch)
+
+skinparam ActivityBackgroundColor #EAF4E9
+skinparam ActivityBorderColor #4C8C4A
+skinparam ActivityDiamondBackgroundColor #FFF3CD
+skinparam NoteBackgroundColor #F5F5F5
+
+' Declare swimlanes up front to pin column order: Human (left) | Automated (right)
+|Human|
+|Automated|
+
+|Human|
+start
+
+note right
+  Backports are NOT a separate release train.
+  No kickoff, no Slack poll, no branch cut.
+  They ride the existing prod vYYYYMMDD branch
+  and the same mms-prod-deploy.yml as the major train.
+end note
+
+:**Prepare backport**
+cherry-pick / open PR onto the EXISTING prod
+vYYYYMMDD branch (no new branch cut)
+(version_manifest --backport, or emergency hot-fix);
+
+:**Merge to dated branch**
+staging pointer stays on same branch as prod
+(staging branch == prod branch);
+
+|Automated|
+:**PROD GATE CHECK** — weekday cron walk-back
+(mms-prod-deploy-trigger-cron.yml, cron '0 13 * * 1-5')
+staging==prod branch -> NOT skip-release-week
+newest green staging SHA ahead of prod;
+note right
+  This cron is the backport delivery mechanism.
+  During a MAJOR release week staging/prod branches
+  differ -> decision skip-release-week -> cron stands down.
+  Cron currently commented out (TODO cutover);
+  workflow_dispatch used today.
+end note
+
+if (eligible green SHA found?) then (yes)
+  :dispatch mms-prod-deploy.yml (sha);
+else (no-green-sha / already-current / in-flight)
+  :HOLD — no deploy dispatched
+  notify #cne-alerts;
+  stop
+endif
+
+|Human|
+:**PROD APPROVAL GATE**
+mms-monolith-prod-deploy-approvers
+(a human approves EVERY prod move);
+
+|Automated|
+partition "PROD" {
+  fork
+    :deploy group **dbs**;
+  fork again
+    :deploy group **resources**;
+  end fork
+  :deploy **web · backup(off) · billing** (WBB);
+}
+note right: via wt-deploy-mms-monolith-v2\n(identical to major train)
+
+|Human|
+:approve-continue;
+
+|Automated|
+partition "PROD-GOV" {
+  :deploy (+ wt-deploy-mms-alerts);
+}
+note right
+  us-persons-prod gate
+  ("US citizen on US soil")
+  Mandated by **FedRAMP High**
+  (approval mechanism could be improved)
+end note
+
+if (any PROD-GOV deploy FAILURES?) then (yes)
+  |Human|
+  :approve-continue
+  (gate required only after prod-gov failures);
+  |Automated|
+else (no — no gate)
+endif
+
+partition "INTERNAL" {
+  :deploy;
+}
+
+:**RELEASED (backport)**
+SHA live on prod / prod-gov / internal;
+stop
+
+@enduml

@@ -1,0 +1,118 @@
+@startuml server_release_happy
+title MongoDB Server (mongo / SERVER) — Release (Happy Path)
+
+skinparam ActivityBackgroundColor #FFF6E5
+skinparam ActivityBorderColor #B8860B
+skinparam ActivityDiamondBackgroundColor #FFF3CD
+skinparam NoteBackgroundColor #F5F5F5
+
+' Legend:
+'   |Human|  = Eng / Release Mgr (manual step / decision)
+'   |CI|     = Evergreen CI / Copybara (automated)
+
+' Lane order is set by first appearance: declare CI first so it renders on the left.
+|CI|
+|Human|
+start
+
+:work lands on **master** (private 10gen/mongo);
+
+' Comment 4 + 8: branches are long-lived, cut only ~1-2x/year off master,
+' NOT once per release. A vX.Y lives until the version is EOL.
+if (new major/minor line needed? (~1-2x per year)) then (yes)
+  :**BRANCH CUT** — create **vX.Y** + **vX.Y-staging**
+  new Evergreen project mongodb-mongo-vX.Y
+  branch is long-lived: supported until version EOL
+  (e.g. v8.0 cut 2024, supported to 2029+);
+  note right
+    Most releases REUSE an existing supported
+    branch — no branch cut. EOL lines (e.g. v4.4)
+    are only touched during emergency responses.
+  end note
+else (no — reuse existing supported branch)
+endif
+
+:engineers open PRs to **vX.Y-staging** (integration);
+
+:**MANAGER promotes** vX.Y-staging -> **vX.Y** (production)
+[human APPROVAL GATE];
+
+:tag **rX.Y.Z-rcN** (push git tag);
+
+|CI|
+partition "RC BUILD (Evergreen)" {
+  :add git tag -> stamp MONGO_VERSION (strips leading 'r');
+  :compile (release variants);
+  :package -> DEB / RPM / MSI / tarball;
+  :sign -> garasign (GPG / jsign MSI);
+  :push -> upload signed artifacts to the release bucket
+  (RC-versioned; not listed on the Downloads page yet)
+  skip_existing guards protect already-shipped artifacts;
+  note right
+    publish_packages/push also run on the release-branch
+    waterfall at RC time (is_release is true for -rcN), but
+    RC builds are not surfaced on the Downloads page.
+  end note
+}
+
+:**test the RC** (correctness / perf / multiversion);
+
+|Human|
+' Comment 6: reworded from "green AND no open release blockers"
+if (manually verified: no frightening build failures\nAND critical fixes complete?) then (yes)
+  :tag **rX.Y.Z** (GA — un-suffixed tag)
+  [human GA PROMOTION GATE];
+else (no)
+  :re-spin rc(N+1), or hold -> see unhappy-path diagram;
+  stop
+endif
+
+|CI|
+partition "GA BUILD (Evergreen)" {
+  :add git tag -> stamp X.Y.Z;
+  :compile · package · sign · push (internal artifacts);
+}
+
+' Comments 7, 9, 12: correct ordering is
+' Atlas -> OM/CM -> Downloads/publish_packages -> Copybara (last).
+partition "ATLAS ROLLOUT" {
+  :version manifest merged · AVM / PVM rollout on **Atlas**;
+}
+
+if (Atlas rollout successful?) then (yes)
+  partition "OM / CM" {
+    :OM / CM release support for the new GA version;
+  }
+
+  partition "DOWNLOADS (very end)" {
+    :publish_packages -> curator/barque submits to repo.mongodb.org
+    + the GA version is listed on the **Downloads page**;
+  }
+
+  ' A partition must not span swimlanes — PlantUML renders one empty frame per
+  ' extra lane. Close it before switching back to |CI|.
+  |Human|
+  partition "PUBLIC RELEASE (Copybara)" {
+    :enable the release-tag mirror — PR to **10gen/mongo**
+    adding/enabling a sync_tag(rX.Y.Z) fragment
+    (release-team initiated; runs ONLY after Downloads
+    has the versions);
+  }
+
+  |CI|
+  partition "COPYBARA SYNC" {
+    :Copybara advances the public branch, then publishes
+    the tag -> pushes to public **mongodb/mongo**;
+    note right: Direction: 10gen/mongo (private) -> mongodb/mongo (public);\nsafety checks refuse to move the public branch backward
+  }
+
+  :**RELEASED** — X.Y.Z on Downloads + Atlas / CM / OM
+  git tag = version;
+  stop
+else (no)
+  :withhold from OM/CM + Downloads -> abandon GA
+  (see unhappy-path diagram);
+  stop
+endif
+
+@enduml

@@ -1,0 +1,109 @@
+@startuml mms_release_happy
+title MMS / Cloud Monolith — Weekly Release Train (Happy Path)
+
+skinparam ActivityBackgroundColor #EAF4E9
+skinparam ActivityBorderColor #4C8C4A
+skinparam ActivityDiamondBackgroundColor #FFF3CD
+skinparam NoteBackgroundColor #F5F5F5
+
+|Automated|
+start
+
+:**MONDAY — Release Kickoff**
+(mms-release-kickoff-manual-deploy.yml)
+confirm CLOUDP vYYYYMMDD fixVersion + QA plan
+post announcement · DOCSP tickets · release_audit;
+
+:**Slack poll posted** (#mms-developers)
+proceed with branch cut? (informational — not a gate);
+note right: Poll is informational only;\nrelease proceeds without explicit approval
+
+:**BRANCH CUT** (PCT branch-cut engine)
+cut from master -> vYYYYMMDD (weekly dated branch)
+new Evergreen project mms-<version> (+ backports)
+previous project set to LAMEDUCK
+record candidate QA SHA;
+
+:**QA** — set pointer mms-qa = SHA
+deploy cloud-qa + cloud-qa-gov (all groups)
+via Argo wt-mms-release;
+
+:**Slack poll posted** (#mms-developers)
+promote to staging? (informational — not a gate);
+note right: Poll is informational only;\nrelease proceeds without explicit approval
+
+:**STAGING** — set pointer mms-stage = SHA
+deploy cloud-stage;
+
+:**DEPLOY GATE** — PRE_PROD_DEPLOY_TESTS vs staging;
+if (gate PASS?) then (yes)
+  :push "deploy-gate pass" marker to prod S3 bucket
+  mms-prod = SHA-green;
+else (no)
+  stop
+endif
+
+:**PROD GATE CHECK** (walk-back)
+newest green staging SHA ahead of prod
+decision = deploy;
+note right
+  dispatch mms-prod-deploy.yml
+  NB: on THIS major train, prod is dispatched
+  by the release flow itself. The weekday cron
+  (mms-prod-deploy-trigger-cron.yml,
+  cron '0 13 * * 1-5') is the **backport**
+  mechanism and auto-skips during release week
+  (skip-release-week when staging/prod branches
+  differ). Cron is currently commented out
+  (TODO cutover) — workflow_dispatch today.
+  See mms-uml-diagram-backport.pu
+end note
+
+|Human|
+:**PROD APPROVAL GATE**
+mms-monolith-prod-deploy-approvers
+(a human approves EVERY prod move);
+
+|Automated|
+partition "PROD" {
+  fork
+    :deploy group **dbs**;
+  fork again
+    :deploy group **resources**;
+  end fork
+  :deploy **web · backup(off) · billing** (WBB);
+}
+note right: via wt-deploy-mms-monolith-v2
+
+|Human|
+:approve-continue;
+
+|Automated|
+partition "PROD-GOV" {
+  :deploy (+ wt-deploy-mms-alerts);
+}
+note right
+  us-persons-prod gate
+  ("US citizen on US soil")
+  Mandated by **FedRAMP High**
+  (approval mechanism could be improved)
+end note
+
+if (any PROD-GOV deploy FAILURES?) then (yes)
+  |Human|
+  :approve-continue
+  (gate required only after prod-gov failures);
+  |Automated|
+else (no — no gate)
+endif
+
+partition "INTERNAL" {
+  :deploy;
+}
+
+:**RELEASED**
+SHA live on prod / prod-gov / internal
+Jira vYYYYMMDD -> RELEASED;
+stop
+
+@enduml

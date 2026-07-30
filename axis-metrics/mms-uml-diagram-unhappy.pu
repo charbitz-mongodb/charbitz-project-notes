@@ -1,0 +1,81 @@
+@startuml mms_release_unhappy
+title MMS / Cloud Monolith — Weekly Release Train (Unhappy Paths)
+
+skinparam ActivityBackgroundColor #FBE9E7
+skinparam ActivityBorderColor #C0392B
+skinparam ActivityDiamondBackgroundColor #FFF3CD
+
+start
+
+:**DEPLOY GATE** — PRE_PROD_DEPLOY_TESTS on staging;
+if (gate PASS?) then (no)
+  :NO "pass" marker pushed; prod pointer NOT advanced;
+  :train HOLDS at STAGING
+  fix forward on branch, re-run gate;
+  note right
+    Emergency only: skip-deploy-gate = true
+    during an outage (WARNING banner in Slack)
+  end note
+  stop
+else (yes)
+endif
+
+:**PROD GATE CHECK** — walk-back (prod-deploy-gate-check)
+find newest green staging SHA ahead of prod;
+switch (outcome?)
+case (deploy)
+  :dispatch mms-prod-deploy.yml;
+case (prod-already-current)
+  :nothing to ship;
+  stop
+case (skip-release-week)
+  :staging & prod on different branches
+  release in progress -> HOLD;
+  stop
+case (skip-already-running)
+  :a run already in flight -> HOLD;
+  stop
+case (no-green-sha / missing-build / error)
+  :HOLD — no deploy dispatched
+  error NEVER silently walks back to older SHA
+  notify-failure -> #cne-alerts;
+  stop
+endswitch
+
+partition "PROD ROLLOUT (mms-prod-deploy.yml)" {
+  fork
+    :deploy **dbs**;
+  fork again
+    :deploy **resources**;
+  end fork
+  if (a deploy job FAILS?) then (yes)
+    :**continue-or-cancel APPROVAL GATE** (human)
+    approve-continue-after-...;<<#FFF3CD>>
+    if (decision?) then (approve)
+      :proceed to next stage anyway;
+    else (REJECT)
+      :gate rejection CANCELS the workflow run
+      train stopped · prod partially updated;
+      kill
+    endif
+  else (no)
+  endif
+}
+
+stop
+
+' ─────────────────────────────────────────────
+' ROLLBACK — there is no "undo" button
+' wt-deploy-mms-monolith-v2 has NO built-in rollback.
+' Back out = re-run mms-prod-deploy.yml with an EARLIER
+'            deploy-sha + skip-downgrade-check = true
+' OpsMgr / download-center: pct rollback <version>
+'            (rewrites S3 "latest" metadata, same major)
+'
+' EMERGENCY BYPASSES (each = WARNING banner):
+'   skip-branch-check    first-ever prod release of new branch
+'   skip-deploy-gate     outage prevents proper staging gate
+'   skip-downgrade-check intentional rollback to older SHA
+' ─────────────────────────────────────────────
+
+@enduml

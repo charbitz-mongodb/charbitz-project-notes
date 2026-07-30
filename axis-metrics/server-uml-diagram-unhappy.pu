@@ -1,0 +1,81 @@
+@startuml server_release_unhappy
+title MongoDB Server (mongo / SERVER) — Release (Unhappy Paths)
+
+skinparam ActivityBackgroundColor #FBE9E7
+skinparam ActivityBorderColor #C0392B
+skinparam ActivityDiamondBackgroundColor #FFF3CD
+skinparam NoteBackgroundColor #F5F5F5
+
+' Lane order is set by first appearance: declare CI first so it renders on the
+' left, matching the happy-path diagram.
+|CI|
+|Human|
+start
+
+:RC built **rX.Y.Z-rcN** (tag-triggered Evergreen build);
+:**test the RC** (correctness / perf / multiversion);
+
+' Comment 6: reworded gate
+if (verified: no frightening build failures\nAND critical fixes complete?) then (yes)
+  :promote to GA -> see happy-path diagram;
+  stop
+else (no — RC not ready)
+endif
+
+' Comment 10: an RC commonly fails for ordinary (non-emergency) reasons.
+' That just means land the fix and re-spin. It is NOT EOL patching.
+:land the fix (tracked in SERVER; release work in STAR)
+if the fix must also reach other SUPPORTED release lines,
+back-port it (backport skill: per-version PR + Evergreen patch,
+Jira BACKPORT; may update etc/backports_required_for_multiversion_tests.yml);
+
+:**RE-SPIN** -> tag **rX.Y.Z-rc(N+1)**
+new tag re-triggers the release build
+skip_existing (=is_release) means a re-spin NEVER
+overwrites already-shipped artifacts in push_bucket;
+note right: loop back to "test the RC"\nuntil the RC is ready
+stop
+
+' ── separate rare/failure outcomes ─────────────────────
+' These are independent scenarios, not branches of the RC loop above, so each
+' gets its own start. (A split/split again block would imply they fan out from
+' the re-spin flow, and its empty first branch rendered as a detached group.)
+
+' Comment 10: EOL patching is emergency-only (operational policy,
+' not encoded in the mongo repo).
+|Human|
+start
+partition "EMERGENCY EOL PATCH (rare)" {
+  :patch an EOL / older line (e.g. v4.4)
+  ONLY during an emergency response
+  (distinct from a normal RC re-spin);
+  stop
+}
+
+' Comment 11: GA sometimes has to be abandoned.
+|Human|
+start
+partition "GA ABANDONED" {
+  :GA fails to build, OR issue found during Atlas rollout;
+  :withhold from **OM / CM** and **Downloads**
+  -> do NOT mirror to public; respin a later version;
+  stop
+}
+
+' Comment 12: Copybara mirror safety (public push).
+|CI|
+start
+partition "PUBLIC MIRROR BLOCKED (Copybara safety checks)" {
+  if (fast-forward only · correct Evergreen project (master) ·\nnot moving public branch backward?) then (ok)
+    :advance public branch, then publish tag
+    -> mongodb/mongo;
+    stop
+  else (blocked)
+    :task FAILS — refuses to move public branch backward
+    (or tag already points elsewhere) -> NO public push
+    re-running is a no-op once destination reached the target;
+    stop
+  endif
+}
+
+@enduml
