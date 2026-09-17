@@ -32,7 +32,7 @@ Sometimes it is helpful to think of a background statement as a description of s
 Pictures and thousands of words:
 
 * Sometimes you just need a quick diagram
-* I like to draw my diagrams using http://diagrams.amazon.com/
+* I like to draw my diagrams
 * I then switch to the [Simple] text render mode in the left-hand pane
 * Copy & Paste into markdown (use four leading spaces on the left)
 * Markdown renderers will then use fixed-width font for your ASCII art!
