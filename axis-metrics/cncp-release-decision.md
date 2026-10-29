@@ -121,34 +121,34 @@ failures metric, and what happens to the CNCP rates that ship today.
 
 ### Option A: CNCP out of the first release, pipeline failure rate later
 
-* The CI failures metric shows Evergreen only.
-* Remove the CNCP "Test jobs" and "Deploy jobs" series from the UI.
-* Keep the CNCP collector and the `gha_job_failure_rate` processor running.
-  History continues to build up for the later metric.
-* Later release: a pipeline failure rate for CNCP.
-  * Unit: one **pipeline run**, which is one system workflow run on push to
-    `master`. This includes the 34 workflows that deploy but run no test jobs.
-  * A pipeline run fails if a failed job in any attempt stopped it.
-  * A cancelled run is not in the numerator or the denominator.
-  * The CNE team must confirm this unit.
-* Prerequisites for the later metric:
-  * Find the owner of the loader (questionnaire question 6).
-  * Change the loader to keep every attempt (`filter=all`).
+The CI failures metric shows Evergreen only. We remove the CNCP "Test jobs"
+and "Deploy jobs" series from the UI. The CNCP collector and the
+`gha_job_failure_rate` processor continue to run, so that history builds up
+for the later metric.
+
+In a later release, CNCP gets a pipeline failure rate. Its unit is one
+**pipeline run**: one system workflow run on push to `master`. This unit
+includes the 34 workflows that deploy but run no test jobs. A pipeline run
+fails if a failed job in any attempt stopped it. A cancelled run is not in the
+numerator or the denominator. The CNE team must confirm this unit.
+
+Two prerequisites must be done before the later metric. We must find the owner
+of the loader (questionnaire question 6). Then the loader must keep every
+attempt (`filter=all`).
 
 ### Option B: CNCP in the CI failures metric, proposals as written
 
-* Ship proposals 1 to 4 as in the one-pager.
-* The proposed number is 7 of 1,456 tested commits (0.5%).
-* The CNE team rejects proposals 2 and 3.
-* The number does not include deploy failures, which are most CNCP failures.
+We ship proposals 1 to 4 as the one-pager gives them. The proposed number is 7
+of 1,456 tested commits (0.5%). The CNE team rejects proposals 2 and 3. The
+number also does not include deploy failures, and most CNCP failures are
+deploy failures.
 
 ### Option C: CNCP pipeline rate now, from run conclusions
 
-* Use the last-attempt run conclusion: 154 runs ended `failure`.
-* The data is available now.
-* A failure that a re-run cleared is not visible. The CNE team says that this
-  failure must count. 172 of the 183 runs with a re-run have no jobs from an
-  earlier attempt.
+We use the last-attempt run conclusion. 154 runs ended `failure`, and this
+data is available now. But a failure that a re-run cleared is not visible, and
+the CNE team says that this failure must count. 172 of the 183 runs with a
+re-run have no jobs from an earlier attempt.
 
 ## Evaluation
 
@@ -163,51 +163,38 @@ mandatory criteria. No option meets criterion 3.
 
 ## Conclusion
 
-Option A. The first release shows the CI failures metric for Evergreen only.
-CNCP gets a pipeline failure rate in a later release.
+We choose option A. The first release shows the CI failures metric for
+Evergreen only. CNCP gets a pipeline failure rate in a later release.
 
-Reasons:
+The CNE team owns CNCP, and it rejects the CI-only method. The CI-only method
+also misses most CNCP failures, because they occur at deploy stages. The data
+cannot count every attempt today. Thus no correct pipeline number is possible
+before the loader changes.
 
-* The CNE team owns CNCP, and it rejects the CI-only method.
-* The CI-only method misses most CNCP failures, because they occur at deploy
-  stages.
-* The data cannot count every attempt today, so no correct pipeline number is
-  possible before the loader changes.
+Some readers will want to compare the CI part of CNCP with Evergreen. The
+dashboard already shows this comparison as the CNCP test-job rate (0.2%). The
+CNCP one-pager says that this rate is not comparable with Evergreen, because
+the two systems test different code with different jobs.
 
-Dissent:
+Two risks remain. First, the loader change may not occur, because we do not
+know the owner. Then the pipeline failure rate stays blocked. We will ask the
+CNE team (questionnaire question 6), and then the data platform team. Second,
+the CNE team may not accept the pipeline run as the unit. We will ask before
+we build the metric.
 
-* Some readers will want to compare the CI part of CNCP with Evergreen.
-* Response: the dashboard already shows this as the CNCP test-job rate (0.2%).
-  The CNCP one-pager says that this rate is not comparable with Evergreen. The
-  two systems test different code with different jobs.
+We have four questions for the CNE team about the pipeline failure rate. Does
+a deploy failure that the environment caused count? For example, the
+`voyage-entitlements` QA deploy failed on 8 of 19 commits, and 7 of these
+failures came directly after a failure. How do we count a run that waits for a
+prod approval? 125 runs had no conclusion when they were last loaded. Does a
+re-run by `mms-deploy-trigger[bot]` mean that an earlier attempt failed? The
+bot started 136 of 183 re-runs. Is a run with a higher `run_number` always a
+later commit? Some workflows use `cancel-in-progress: false`.
 
-Risks:
-
-* **The loader change does not occur.** The owner is unknown. Then the
-  pipeline failure rate stays blocked. Action: ask the CNE team (questionnaire
-  question 6), then the data platform team.
-* **The CNE team does not accept the pipeline run as the unit.** Action: ask
-  before we build the metric.
-
-Questions for the CNE team about the pipeline failure rate:
-
-1. Does a deploy failure that the environment caused count? The
-   `voyage-entitlements` QA deploy failed on 8 of 19 commits. 7 of these
-   failures came directly after a failure.
-2. How do we count a run that waits for a prod approval? 125 runs had no
-   conclusion when they were last loaded.
-3. Does a re-run by `mms-deploy-trigger[bot]` mean that an earlier attempt
-   failed? The bot started 136 of 183 re-runs.
-4. Is a run with a higher `run_number` always a later commit? Some workflows
-   use `cancel-in-progress: false`.
-
-Follow-up work (no tickets yet):
-
-* Remove the CNCP series from the CI failures pages
-  (`web/src/routes/ci-failures/ChainsPage.tsx`) and update `docs/metrics.md`
-  and the Methodology page.
-* Add "Commit stability", "Pipeline failure rate" and "Pipeline run" to
-  `CONTEXT.md`. Remove the CNCP lines from "Caused failure" and "Flaky
-  failure".
-* Close or change DEVPROD-46015, because proposals 1 to 4 are no longer for
-  sign-off.
+Three items of follow-up work have no tickets yet. We must remove the CNCP
+series from the CI failures pages
+(`web/src/routes/ci-failures/ChainsPage.tsx`), and update `docs/metrics.md`
+and the Methodology page. We must add "Commit stability", "Pipeline failure
+rate" and "Pipeline run" to `CONTEXT.md`, and remove the CNCP lines from
+"Caused failure" and "Flaky failure". We must close or change DEVPROD-46015,
+because proposals 1 to 4 are no longer for sign-off.
